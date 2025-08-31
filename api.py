@@ -4,17 +4,12 @@ from datetime import datetime, date
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 
-# -------------------- App --------------------
 app = Flask(__name__)
 
 # -------------------- DB config --------------------
 DB_URL = os.environ.get("DATABASE_URL")
 if not DB_URL:
-    # Si quieres permitir modo sin BD, comenta este raise (no guardará nada).
     raise RuntimeError("DATABASE_URL env var is required")
-
-# Tip: si alguna vez hace falta, también funciona con el prefijo:
-# DB_URL = DB_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DB_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -26,11 +21,11 @@ class Transaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(64), nullable=False)
     date = db.Column(db.Date, nullable=False, default=date.today)
-    type = db.Column(db.String(10), nullable=False)  # "income" | "expense"
+    type = db.Column(db.String(10), nullable=False)  # income | expense
     category = db.Column(db.String(64), nullable=False)
     concept = db.Column(db.String(255), nullable=False)
-    amount_clp = db.Column(db.Integer, nullable=False)  # CLP sin decimales
-    source = db.Column(db.String(32), nullable=False)   # lawrence|haru|sophie
+    amount_clp = db.Column(db.Integer, nullable=False)
+    source = db.Column(db.String(32), nullable=False)
     idempotency_key = db.Column(db.String(64), unique=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -39,10 +34,6 @@ class Transaction(db.Model):
 SECRET = os.environ.get("SECRET_TOKEN", "")
 
 def check_auth(req) -> bool:
-    """
-    Espera header:
-      Authorization: Bearer <SECRET_TOKEN>
-    """
     auth = req.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return False
@@ -57,7 +48,8 @@ def health():
 
 @app.get("/")
 def home():
-    return "Sophie API viva ✅ v3", 200
+    # Marca nueva MUY clara
+    return "🚀 Sophie API viva ✅ v4", 200
 
 
 # -------------------- Finanzas --------------------
@@ -75,7 +67,6 @@ def add_tx():
     if data["type"] not in ("income", "expense"):
         return jsonify(error="type must be income|expense"), 400
 
-    # Idempotencia: evita duplicados si ya se procesó esa clave
     idem = data.get("idempotency_key")
     if idem:
         exists = Transaction.query.filter_by(idempotency_key=idem).first()
@@ -111,8 +102,7 @@ def summary():
 
     q = Transaction.query.filter_by(user_id=user_id)
     if month:
-        y, m = month.split("-")
-        y, m = int(y), int(m)
+        y, m = map(int, month.split("-"))
         start = date(y, m, 1)
         end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
         q = q.filter(Transaction.date >= start, Transaction.date < end)
@@ -123,7 +113,6 @@ def summary():
 
     by_cat = {}
     for r in rows:
-        # En el desglose por categoría mostramos gastos como positivos.
         if r.type == "expense":
             by_cat[r.category] = by_cat.get(r.category, 0) + r.amount_clp
         else:
@@ -153,8 +142,9 @@ def diag():
 
 # -------------------- Init & Run --------------------
 with app.app_context():
-    db.create_all()   # crea tablas si no existen
+    db.create_all()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
+    print(">>> 🚀 Running Sophie API v4 with __diag enabled")
     app.run(host="0.0.0.0", port=port)
