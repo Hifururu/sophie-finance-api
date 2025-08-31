@@ -117,6 +117,14 @@ def summary():
 # ---- Crear tablas si no existen ----
 with app.app_context():
     db.create_all()
+@app.get("/__diag")
+def diag():
+    try:
+        has_db_url = bool(os.environ.get("DATABASE_URL"))
+        count = Transaction.query.count()
+        return jsonify(version="pg-v1", has_db_url=has_db_url, rows_in_db=count), 200
+    except Exception as e:
+        return jsonify(version="pg-v1", error=str(e)), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
