@@ -4,13 +4,17 @@ from datetime import datetime, date
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 
+# -------------------- App --------------------
 app = Flask(__name__)
 
-# -------------------- Config DB --------------------
+# -------------------- DB config --------------------
 DB_URL = os.environ.get("DATABASE_URL")
 if not DB_URL:
-    # Si quieres que arranque sin BD, comenta este raise (pero no guardará nada).
+    # Si quieres permitir modo sin BD, comenta este raise (no guardará nada).
     raise RuntimeError("DATABASE_URL env var is required")
+
+# Tip: si alguna vez hace falta, también funciona con el prefijo:
+# DB_URL = DB_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DB_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -31,11 +35,14 @@ class Transaction(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
-# -------------------- Seguridad simple --------------------
+# -------------------- Seguridad --------------------
 SECRET = os.environ.get("SECRET_TOKEN", "")
 
-def check_auth(req):
-    """Bearer <SECRET_TOKEN>"""
+def check_auth(req) -> bool:
+    """
+    Espera header:
+      Authorization: Bearer <SECRET_TOKEN>
+    """
     auth = req.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return False
@@ -43,14 +50,14 @@ def check_auth(req):
     return token == SECRET
 
 
-# -------------------- Health & Home --------------------
+# -------------------- Salud & Home --------------------
 @app.get("/health")
 def health():
     return jsonify(ok=True), 200
 
 @app.get("/")
 def home():
-    return "Sophie API viva ✅ v2", 200
+    return "Sophie API viva ✅ v3", 200
 
 
 # -------------------- Finanzas --------------------
@@ -68,7 +75,7 @@ def add_tx():
     if data["type"] not in ("income", "expense"):
         return jsonify(error="type must be income|expense"), 400
 
-    # Idempotencia (evita duplicados si ya se procesó esa clave)
+    # Idempotencia: evita duplicados si ya se procesó esa clave
     idem = data.get("idempotency_key")
     if idem:
         exists = Transaction.query.filter_by(idempotency_key=idem).first()
@@ -113,10 +120,10 @@ def summary():
     rows = q.all()
     income = sum(r.amount_clp for r in rows if r.type == "income")
     expense = sum(r.amount_clp for r in rows if r.type == "expense")
+
     by_cat = {}
     for r in rows:
-        # Para categorías: sumamos gastos como positivo (lo que “sale”)
-        # Si prefieres ingresos positivos y gastos negativos, cambia el signo aquí.
+        # En el desglose por categoría mostramos gastos como positivos.
         if r.type == "expense":
             by_cat[r.category] = by_cat.get(r.category, 0) + r.amount_clp
         else:
@@ -146,8 +153,7 @@ def diag():
 
 # -------------------- Init & Run --------------------
 with app.app_context():
-    # Crea las tablas si no existen
-    db.create_all()
+    db.create_all()   # crea tablas si no existen
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
