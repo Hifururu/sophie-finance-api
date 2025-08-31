@@ -6,13 +6,16 @@ from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 
-# ---- Config DB ----
+# -------------------- Config DB --------------------
 DB_URL = os.environ.get("DATABASE_URL")
 if not DB_URL:
+    # Si quieres que arranque sin BD, comenta este raise (pero no guardará nada).
     raise RuntimeError("DATABASE_URL env var is required")
+
 app.config["SQLALCHEMY_DATABASE_URI"] = DB_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
+
 
 class Transaction(db.Model):
     __tablename__ = "transactions"
@@ -27,58 +30,69 @@ class Transaction(db.Model):
     idempotency_key = db.Column(db.String(64), unique=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# ---- Seguridad simple ----
+
+# -------------------- Seguridad simple --------------------
 SECRET = os.environ.get("SECRET_TOKEN", "")
 
 def check_auth(req):
+    """Bearer <SECRET_TOKEN>"""
     auth = req.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "): return False
+    if not auth.startswith("Bearer "):
+        return False
     token = auth.split(" ", 1)[1]
     return token == SECRET
 
-# ---- Health & Home ----
+
+# -------------------- Health & Home --------------------
 @app.get("/health")
 def health():
     return jsonify(ok=True), 200
 
 @app.get("/")
 def home():
-    return "Sophie API viva ✅", 200
+    return "Sophie API viva ✅ v2", 200
 
-# ---- Endpoints Finanzas ----
+
+# -------------------- Finanzas --------------------
 @app.post("/api/tx")
 def add_tx():
     if not check_auth(request):
         return jsonify(error="unauthorized"), 401
 
     data = request.get_json(silent=True) or {}
-    required = ["user_id","date","type","category","concept","amount_clp","source"]
+    required = ["user_id", "date", "type", "category", "concept", "amount_clp", "source"]
     missing = [f for f in required if f not in data]
     if missing:
         return jsonify(error=f"missing fields: {', '.join(missing)}"), 400
-    if data["type"] not in ("income","expense"):
+
+    if data["type"] not in ("income", "expense"):
         return jsonify(error="type must be income|expense"), 400
 
-    # Idempotencia
+    # Idempotencia (evita duplicados si ya se procesó esa clave)
     idem = data.get("idempotency_key")
     if idem:
         exists = Transaction.query.filter_by(idempotency_key=idem).first()
         if exists:
             return jsonify(status="duplicate_ignored", stored=True, id=exists.id), 200
 
-    tx = Transaction(
-        user_id=data["user_id"],
-        date=datetime.strptime(data["date"], "%Y-%m-%d").date(),
-        type=data["type"],
-        category=str(data["category"]).lower(),
-        concept=data["concept"],
-        amount_clp=int(data["amount_clp"]),
-        source=str(data["source"]).lower(),
-        idempotency_key=idem
-    )
-    db.session.add(tx)
-    db.session.commit()
-    return jsonify(status="ok", stored=True, id=tx.id), 200
+    try:
+        tx = Transaction(
+            user_id=data["user_id"],
+            date=datetime.strptime(data["date"], "%Y-%m-%d").date(),
+            type=data["type"],
+            category=str(data["category"]).lower(),
+            concept=data["concept"],
+            amount_clp=int(data["amount_clp"]),
+            source=str(data["source"]).lower(),
+            idempotency_key=idem
+        )
+        db.session.add(tx)
+        db.session.commit()
+        return jsonify(status="ok", stored=True, id=tx.id), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify(error=str(e)), 500
+
 
 @app.get("/api/summary")
 def summary():
@@ -93,7 +107,7 @@ def summary():
         y, m = month.split("-")
         y, m = int(y), int(m)
         start = date(y, m, 1)
-        end = date(y+1, 1, 1) if m == 12 else date(y, m+1, 1)
+        end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
         q = q.filter(Transaction.date >= start, Transaction.date < end)
 
     rows = q.all()
@@ -101,8 +115,12 @@ def summary():
     expense = sum(r.amount_clp for r in rows if r.type == "expense")
     by_cat = {}
     for r in rows:
-        sign = 1 if r.type == "expense" else -1
-        by_cat[r.category] = by_cat.get(r.category, 0) + sign * r.amount_clp
+        # Para categorías: sumamos gastos como positivo (lo que “sale”)
+        # Si prefieres ingresos positivos y gastos negativos, cambia el signo aquí.
+        if r.type == "expense":
+            by_cat[r.category] = by_cat.get(r.category, 0) + r.amount_clp
+        else:
+            by_cat[r.category] = by_cat.get(r.category, 0) - r.amount_clp
 
     return jsonify(
         user_id=user_id,
@@ -114,9 +132,8 @@ def summary():
         count=len(rows)
     ), 200
 
-# ---- Crear tablas si no existen ----
-with app.app_context():
-    db.create_all()
+
+# -------------------- Diagnóstico --------------------
 @app.get("/__diag")
 def diag():
     try:
@@ -125,6 +142,12 @@ def diag():
         return jsonify(version="pg-v1", has_db_url=has_db_url, rows_in_db=count), 200
     except Exception as e:
         return jsonify(version="pg-v1", error=str(e)), 500
+
+
+# -------------------- Init & Run --------------------
+with app.app_context():
+    # Crea las tablas si no existen
+    db.create_all()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
