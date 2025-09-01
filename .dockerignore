@@ -1,4 +1,9 @@
-.git
 __pycache__/
 *.pyc
+*.pyo
 .env
+.git
+.gitignore
+Dockerfile.txt
+data/*.csv
+data/*.txt
