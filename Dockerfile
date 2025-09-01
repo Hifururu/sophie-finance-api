@@ -2,15 +2,15 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copiamos primero requirements para instalar deps
+# Dependencias
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiamos todo el código
+# Código
 COPY . .
 
 ENV PORT=8080
 EXPOSE 8080
 
-# Ejecuta Flask con Gunicorn (api.py → app)
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "sophie_sophie_api:app"]
+# Ejecuta Flask (archivo sophie_api.py → objeto app)
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "sophie_api:app"]
