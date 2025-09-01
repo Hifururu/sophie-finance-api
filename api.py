@@ -4,12 +4,16 @@ from datetime import datetime, date
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 
+# Integra a Sophie (usa el sophie.py que ya tienes)
+# - Debe existir sophie.py en la misma carpeta y exponer la función sophie(mensaje: str) -> str
+from sophie import sophie as sophie_fn
+
 app = Flask(__name__)
 
-# -------------------- DB config --------------------
+# -------------------- Configuración DB --------------------
 DB_URL = os.environ.get("DATABASE_URL")
 if not DB_URL:
-    raise RuntimeError("DATABASE_URL env var is required")
+    raise RuntimeError("DATABASE_URL env var is required (e.g. postgresql+psycopg2://user:pass@host:5432/db)")
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DB_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -30,7 +34,7 @@ class Transaction(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
-# -------------------- Seguridad --------------------
+# -------------------- Auth sencilla (Bearer) --------------------
 SECRET = os.environ.get("SECRET_TOKEN", "")
 
 def check_auth(req) -> bool:
@@ -48,11 +52,11 @@ def health():
 
 @app.get("/")
 def home():
-    # Marca nueva MUY clara
-    return "🚀 Sophie API viva ✅ v4", 200
+    # Marca visible para confirmar despliegue
+    return "🚀 Sophie API viva ✅ v5", 200
 
 
-# -------------------- Finanzas --------------------
+# -------------------- Endpoints financieros --------------------
 @app.post("/api/tx")
 def add_tx():
     if not check_auth(request):
@@ -75,14 +79,14 @@ def add_tx():
 
     try:
         tx = Transaction(
-            user_id=data["user_id"],
+            user_id=str(data["user_id"]),
             date=datetime.strptime(data["date"], "%Y-%m-%d").date(),
-            type=data["type"],
+            type=str(data["type"]).lower(),
             category=str(data["category"]).lower(),
-            concept=data["concept"],
+            concept=str(data["concept"]),
             amount_clp=int(data["amount_clp"]),
             source=str(data["source"]).lower(),
-            idempotency_key=idem
+            idempotency_key=str(idem) if idem else None
         )
         db.session.add(tx)
         db.session.commit()
@@ -130,6 +134,10 @@ def summary():
 
 
 # -------------------- Diagnóstico --------------------
+@app.get("/__routes")
+def routes():
+    return jsonify(sorted([f"{r.rule} [{','.join(sorted(r.methods))}]" for r in app.url_map.iter_rules()]))
+
 @app.get("/__diag")
 def diag():
     try:
@@ -140,11 +148,33 @@ def diag():
         return jsonify(version="pg-v1", error=str(e)), 500
 
 
-# -------------------- Init & Run --------------------
+# -------------------- Sophie (procesador de mensajes) --------------------
+@app.post("/procesar")
+def procesar():
+    """
+    Recibe JSON: { "mensaje": "texto libre" }
+    Usa sophie.py para:
+      - detectar gastos y registrar CSV (data/gastos.csv)
+      - generar plan de kanjis (data/plan_kanji-YYYY-MM-DD.txt)
+    Respuesta: { ok: true, salida: "<texto multilinea>" }
+    """
+    data = request.get_json(silent=True) or {}
+    mensaje = str(data.get("mensaje", "")).strip()
+    if not mensaje:
+        return jsonify(error="mensaje requerido"), 400
+
+    try:
+        salida = sophie_fn(mensaje)  # llama sophie.sophie(mensaje)
+        return jsonify(ok=True, salida=salida), 200
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 500
+
+
+# -------------------- Init & Run (local) --------------------
 with app.app_context():
     db.create_all()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    print(">>> 🚀 Running Sophie API v4 with __diag enabled")
+    print(">>> 🚀 Running Sophie API v5 with __diag, __routes y /procesar")
     app.run(host="0.0.0.0", port=port)
