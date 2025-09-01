@@ -1,23 +1,16 @@
-# Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Evita archivos .pyc y buffers
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PORT=8080
-
-# Dependencias del sistema (opcionales, psycopg2-binary ya las trae)
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     build-essential libpq-dev && rm -rf /var/lib/apt/lists/*
-
-# Dependencias de Python
+# Copiamos primero requirements para instalar deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Código
+# Copiamos todo el código
 COPY . .
 
-# Arranque SIEMPRE con api.py
-CMD ["python", "api.py"]
+ENV PORT=8080
+EXPOSE 8080
+
+# Ejecuta Flask con Gunicorn (api.py → app)
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "api:app"]
