@@ -13,4 +13,4 @@ ENV PORT=8080
 EXPOSE 8080
 
 # Ejecuta Flask con Gunicorn (api.py → app)
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "sophie_api:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "sophie_sophie_api:app"]
